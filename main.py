@@ -106,6 +106,9 @@ flags.DEFINE_integer(
 flags.DEFINE_integer(
     'num_adaptation_steps', default=6000, help='Number of adaptation steps.')
 
+flags.DEFINE_integer(
+    'num_chains_to_save', default=0, help='Number of chains to save traces for.')
+
 flags.DEFINE_string('f', default='', help='kernel')
 
 FLAGS = flags.FLAGS
@@ -234,34 +237,7 @@ def main(_):
   util.print('Loading model {} with dataset {}.'.format(FLAGS.model,
                                                         FLAGS.dataset))
 
-  if FLAGS.model == 'radon':
-    model_config = models.get_radon(state_code=FLAGS.dataset)
-  elif FLAGS.model == 'radon_stddvs':
-    model_config = models.get_radon_model_stddvs(state_code=FLAGS.dataset)
-  elif FLAGS.model == '8schools':
-    model_config = models.get_eight_schools()
-  elif FLAGS.model == 'german_credit_gammascale':
-    model_config = models.get_german_credit_gammascale()
-    util.print('Warning! This model contains Gamma variables, which '
-               'causes problems with `parallel_for`.')
-  elif FLAGS.model == 'german_credit_lognormalcentered':
-    model_config = models.get_german_credit_lognormalcentered()
-  elif FLAGS.model == 'election':
-    model_config = models.get_election()
-  elif FLAGS.model == 'electric':
-    model_config = models.get_electric()
-  elif FLAGS.model == 'time_series':
-    model_config = models.get_time_series()
-  elif FLAGS.model == 'neals_funnel':
-    model_config = models.get_neals_funnel()
-  elif FLAGS.model == 'multivariate_simple':
-    model_config = models.get_multivariate_simple()
-  elif FLAGS.model == 'gp_classification':
-    model_config = models.get_gp_classification()
-  elif FLAGS.model == 'gp_poisson':
-    model_config = models.get_gp_poisson()
-  else:
-    raise Exception('unknown model {}'.format(FLAGS.model))
+  model_config = models.get_model_by_name(FLAGS.model, dataset=FLAGS.dataset)
 
   if FLAGS.results_dir == '':
     results_dir = FLAGS.model + '_' + FLAGS.dataset
@@ -297,7 +273,7 @@ def main(_):
 
 def run_vi(model_config, results_dir, file_path):
   (target, model, elbo, variational_parameters, learnable_parameters,
-  actual_reparam) = create_target_graph(model_config, results_dir)
+   actual_reparam) = create_target_graph(model_config, results_dir)
 
   if tf.io.gfile.exists(file_path):
     util.print(
@@ -436,7 +412,8 @@ def run_hmc(model_config, results_dir, file_path):
       file_path_base=file_path[:-5],
       samples=samples,
       param_names=param_names,
-      normalized_ess_final=normalized_ess_final)
+      normalized_ess_final=normalized_ess_final,
+      num_chains_to_save=FLAGS.num_chains_to_save)
 
 
 def run_interleaved_hmc_with_leapfrog_steps(
@@ -567,7 +544,8 @@ def run_interleaved_hmc(model_config, results_dir, file_path):
       file_path_base=file_path[:-5],
       samples=samples,
       param_names=param_names,
-      normalized_ess_final=normalized_ess_final)
+      normalized_ess_final=normalized_ess_final,
+      num_chains_to_save=FLAGS.num_chains_to_save)
 
 
 def save_hmc_results(results, file_path, **kwargs):

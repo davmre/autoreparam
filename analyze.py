@@ -3,7 +3,7 @@ import os
 import json
 
 import tensorflow as tf
-flags = tf.app.flags
+flags = tf.compat.v1.app.flags
 
 flags.DEFINE_boolean("elbos", default=False, help="")
 flags.DEFINE_boolean("ess", default=False, help="")

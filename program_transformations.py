@@ -24,11 +24,11 @@ import inspect
 import six
 import tensorflow as tf
 
-from tensorflow_probability import bijectors as tfb
 from tensorflow_probability import distributions as tfd
-from tensorflow_probability.python.edward2.generated_random_variables import Normal
-from tensorflow_probability.python.edward2.interceptor import interceptable
-from tensorflow_probability.python.edward2.interceptor import interception
+from tensorflow_probability import bijectors as tfb
+from tensorflow_probability.python.experimental.edward2.generated_random_variables import Normal
+from tensorflow_probability.python.experimental.edward2.interceptor import interceptable
+from tensorflow_probability.python.experimental.edward2.interceptor import interception
 
 from tensorflow_probability.python import edward2
 
@@ -176,13 +176,6 @@ def get_trace(model, *args, **kwargs):
   return trace_result
 
 
-def _all_args_const(kwargs):
-  return all([isinstance(kwa, float) or
-              isinstance(kwa, int) or
-              isinstance(kwa, str)
-             for kwa in kwargs.values()])
-
-
 def make_variational_model(model, *args, **kwargs):
 
   variational_parameters = collections.OrderedDict()
@@ -237,11 +230,8 @@ def make_variational_model(model, *args, **kwargs):
 # FIXME: Assumes the name of the data starts with y... Need to fix so that
 # it works with user-specified data.
 def ncp(rv_constructor, *rv_args, **rv_kwargs):
-
-  if (rv_constructor.__name__ == 'Normal'
-      # and not _all_args_const(rv_kwargs)
-      and not rv_kwargs['name'].startswith('y')):
-
+  if (rv_constructor.__name__ == 'Normal' and
+      not rv_kwargs['name'].startswith('y')):
     loc = rv_kwargs['loc']
     scale = rv_kwargs['scale']
     name = rv_kwargs['name']
@@ -262,9 +252,8 @@ def ncp(rv_constructor, *rv_args, **rv_kwargs):
     return b.forward(rv_std)
 
   elif ((rv_constructor.__name__.startswith('MultivariateNormal')
-        or rv_constructor.__name__.startswith('GaussianProcess'))
-        # and not _all_args_const(rv_kwargs)
-        and not rv_kwargs['name'].startswith('y')):
+            or rv_constructor.__name__.startswith('GaussianProcess'))
+            and not rv_kwargs['name'].startswith('y')):
 
     name = rv_kwargs['name']
 
@@ -273,7 +262,9 @@ def ncp(rv_constructor, *rv_args, **rv_kwargs):
       X = gp_dist._get_index_points()
       x_loc = gp_dist.mean_fn(X)
       x_cov = gp_dist._compute_covariance(index_points=X)
-      shape = tfd.MultivariateNormalFullCovariance(x_loc, x_cov).event_shape
+      shape = edward2.MultivariateNormalFullCovariance(x_loc,
+                                                       x_cov,
+                                                       name='yignoreme').shape
 
     else:
       x_loc = rv_kwargs['loc']
@@ -328,17 +319,17 @@ def make_learnable_parametrisation(init_val_loc=0.,
       if not allow_new_variables:
         raise Exception('trying to create a variable for {}, but '
                         'parameterization was already passed in ({})'.format(
-          name, learnable_parameters))
+                            name, learnable_parameters))
       learnable_parameters[loc_name] = tf.sigmoid(tau * tf.compat.v1.get_variable(
-        name=loc_name + '_unconstrained',
-        initializer=tf.ones(shape) * init_val_loc))
+          name=loc_name + '_unconstrained',
+          initializer=tf.ones(shape) * init_val_loc))
 
       if tied_pparams:
         learnable_parameters[scale_name] = learnable_parameters[loc_name]
       else:
         learnable_parameters[scale_name] = tf.sigmoid(tau * tf.compat.v1.get_variable(
-          name=scale_name + '_unconstrained',
-          initializer=tf.ones(shape) * init_val_scale))
+            name=scale_name + '_unconstrained',
+            initializer=tf.ones(shape) * init_val_scale))
 
       return learnable_parameters[loc_name], learnable_parameters[scale_name]
 
@@ -347,10 +338,8 @@ def make_learnable_parametrisation(init_val_loc=0.,
   if parameterisation_type == 'exp':
 
     def recenter(rv_constructor, *rv_args, **rv_kwargs):
-
-      if (rv_constructor.__name__ == 'Normal'
-              # and not _all_args_const(rv_kwargs)
-              and not rv_kwargs['name'].startswith('y')):
+      if (rv_constructor.__name__ == 'Normal' and
+          not rv_kwargs['name'].startswith('y')):
 
         # NB: assume everything is kwargs for now.
         x_loc = rv_kwargs['loc']
@@ -379,7 +368,6 @@ def make_learnable_parametrisation(init_val_loc=0.,
 
       elif ((rv_constructor.__name__.startswith('MultivariateNormal')
              or rv_constructor.__name__.startswith('GaussianProcess'))
-            # and not _all_args_const(rv_kwargs)
             and not rv_kwargs['name'].startswith('y')):
 
         name = rv_kwargs['name']
@@ -396,11 +384,11 @@ def make_learnable_parametrisation(init_val_loc=0.,
           x_cov = rv_kwargs['covariance_matrix']
           shape = rv_constructor(*rv_args, **rv_kwargs).shape
 
-        Lambda, Q = tf.linalg.eigh(x_cov)
-
         a, b = get_or_init(name, shape)
+
+        Lambda, Q = tf.linalg.eigh(x_cov)
         Lambda_hat_b = tf.pow(Lambda, b)
-        Q_T = tf.transpose(Q)
+        Q_T = tf.transpose(a=Q)
 
         kwargs_std = {}
         kwargs_std['loc'] = tf.multiply(x_loc, a)

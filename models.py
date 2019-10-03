@@ -23,11 +23,11 @@ from __future__ import print_function
 
 import collections
 import contextlib
+import csv
 import os
 import numpy as np
 import pandas as pd
 from six.moves import urllib
-import csv
 
 import tensorflow as tf
 
@@ -35,8 +35,9 @@ from tensorflow_probability import bijectors as tfb
 from tensorflow_probability import distributions as tfd
 
 from tensorflow_probability import edward2 as ed
-import program_transformations as ed_transforms
 from tensorflow_probability import positive_semidefinite_kernels as psd_kernels
+
+import program_transformations as ed_transforms
 
 import electric
 import election88
@@ -45,7 +46,8 @@ data_dir = '/tmp/datasets'
 
 ModelConfig = collections.namedtuple(
     'ModelConfig', ('model', 'model_args', 'observed_data', 'to_centered',
-                    'to_noncentered', 'make_to_centered'))
+                    'to_noncentered', 'make_to_centered',
+                    'make_to_partially_noncentered'))
 
 
 def build_make_to_centered(model, model_args, observed_data={}):
@@ -96,6 +98,32 @@ def make_to_noncentered(model, model_args, observed_data={}):
   return to_noncentered
 
 
+def build_make_to_partially_noncentered(model, model_args, observed_data={}):
+  """Make a fn to convert a model's state to noncentered parameterisation."""
+
+  def make_to_partially_noncentered(**centering_kwargs):
+    (_, parametrisation, _) = ed_transforms.make_learnable_parametrisation(
+        learnable_parameters=centering_kwargs)
+
+    def to_partially_noncentered(centered_state):
+      set_values = ed_transforms.make_value_setter(*centered_state)
+      with ed.tape() as noncentered_tape:
+        with ed.interception(parametrisation):
+          with ed.interception(set_values):
+            model(*model_args)
+
+      param_vals = [
+          tf.identity(v)
+          for k, v in noncentered_tape.items()
+          if k not in observed_data.keys()
+      ]
+      return param_vals
+
+    return to_partially_noncentered
+
+  return make_to_partially_noncentered
+
+
 def get_eight_schools():
   """Eight schools model."""
   num_schools = 8
@@ -123,12 +151,15 @@ def get_eight_schools():
 
   make_to_centered = build_make_to_centered(
       schools_model, model_args=model_args, observed_data=observed)
+  make_to_partially_noncentered = build_make_to_partially_noncentered(
+      schools_model, model_args=model_args, observed_data=observed)
   to_centered = make_to_centered(**noncentered_parameterization)
   to_noncentered = make_to_noncentered(
       schools_model, model_args=model_args, observed_data=observed)
 
   return ModelConfig(schools_model, model_args, observed, to_centered,
-                     to_noncentered, make_to_centered)
+                     to_noncentered, make_to_centered,
+                     make_to_partially_noncentered)
 
 
 def get_multivariate_simple():
@@ -158,30 +189,40 @@ def get_multivariate_simple():
 
   make_to_centered = build_make_to_centered(
     multivariate_normal_model, model_args=model_args, observed_data=observed)
+  make_to_partially_noncentered = build_make_to_partially_noncentered(
+    multivariate_normal_model, model_args=model_args, observed_data=observed)
   to_centered = make_to_centered(**noncentered_parameterization)
   to_noncentered = make_to_noncentered(
     multivariate_normal_model, model_args=model_args, observed_data=observed)
 
-  return ModelConfig(multivariate_normal_model, model_args, observed, to_centered,
-                     to_noncentered, make_to_centered)
+  return ModelConfig(multivariate_normal_model, model_args, observed,
+                     to_centered, to_noncentered, make_to_centered,
+                     make_to_partially_noncentered)
 
 
 def get_gp_classification():
-  X_train = np.array([[0.284, 0.399], [0.295, 0.422], [0.297, 0.410], [0.282, 0.408],
-                      [0.299, 0.406], [0.287, 0.380], [0.290, 0.395], [0.281, 0.377],
-                      [0.280, 0.374], [0.289, 0.391], [0.286, 0.369], [0.298, 0.351],
-                      [0.295, 0.422], [0.296, 0.410], [0.286, 0.368], [0.287, 0.352],
-                      [0.280, 0.374], [0.289, 0.391], [0.286, 0.369], [0.298, 0.351],
-                      [0.295, 0.422], [0.288, 0.410], [0.286, 0.368], [0.287, 0.352],
-                      [0.286, 0.361], [0.287, 0.351], [0.290, 0.390], [0.298, 0.389],
-                      [0.283, 0.389], [0.284, 0.422], [0.297, 0.410], [0.282, 0.418],
-                      [0.297, 0.406], [0.283, 0.381], [0.280, 0.395], [0.281, 0.367],
-                      [0.290, 0.374], [0.284, 0.391], [0.286, 0.369], [0.288, 0.351],
-                      [0.282, 0.339], [0.293, 0.337], [0.291, 0.392], [0.329, 0.286],
-                      [0.323, 0.208], [0.368, -0.221], [0.398, 0.99], [0.659, 0.142],
-                      [0.689, 0.442], [0.320, 0.356], [0.294, 0.432], [0.299, 0.382],
-                      [0.287, 0.423], [0.289, 0.393], [0.292, 0.363], [0.291, 0.423]
-                      ]).astype(np.float32)
+  num_train_points = 3
+  num_dims = 2
+
+  X_train = np.array([[0.284, 0.399], [0.295, 0.422], [0.297, 0.410],
+                      [0.282, 0.408], [0.299, 0.406], [0.287, 0.380],
+                      [0.290, 0.395], [0.281, 0.377], [0.280, 0.374],
+                      [0.289, 0.391], [0.286, 0.369], [0.298, 0.351],
+                      [0.295, 0.422], [0.296, 0.410], [0.286, 0.368],
+                      [0.287, 0.352], [0.280, 0.374], [0.289, 0.391],
+                      [0.286, 0.369], [0.298, 0.351], [0.295, 0.422],
+                      [0.288, 0.410], [0.286, 0.368], [0.287, 0.352],
+                      [0.286, 0.361], [0.287, 0.351], [0.290, 0.390],
+                      [0.298, 0.389], [0.283, 0.389], [0.284, 0.422],
+                      [0.297, 0.410], [0.282, 0.418], [0.297, 0.406],
+                      [0.283, 0.381], [0.280, 0.395], [0.281, 0.367],
+                      [0.290, 0.374], [0.284, 0.391], [0.286, 0.369],
+                      [0.288, 0.351], [0.282, 0.339], [0.293, 0.337],
+                      [0.291, 0.392], [0.329, 0.286], [0.323, 0.208],
+                      [0.368, -0.221], [0.398, 0.99], [0.659, 0.142],
+                      [0.689, 0.442], [0.320, 0.356], [0.294, 0.432],
+                      [0.299, 0.382], [0.287, 0.423], [0.289, 0.393],
+                      [0.292, 0.363], [0.291, 0.423]], dtype=np.float32)
 
   num_train_points, num_dims = X_train.shape
 
@@ -212,12 +253,15 @@ def get_gp_classification():
 
   make_to_centered = build_make_to_centered(
     gp_classification_model, model_args=model_args, observed_data=observed)
+  make_to_partially_noncentered = build_make_to_partially_noncentered(
+    gp_classification_model, model_args=model_args, observed_data=observed)
   to_centered = make_to_centered(**noncentered_parameterization)
   to_noncentered = make_to_noncentered(
     gp_classification_model, model_args=model_args, observed_data=observed)
 
   return ModelConfig(gp_classification_model, model_args, observed, to_centered,
-                     to_noncentered, make_to_centered)
+                     to_noncentered, make_to_centered,
+                     make_to_partially_noncentered)
 
 
 def get_gp_poisson():
@@ -269,12 +313,15 @@ def get_gp_poisson():
 
   make_to_centered = build_make_to_centered(
     gp_poisson_model, model_args=model_args, observed_data=observed)
+  make_to_partially_noncentered = build_make_to_partially_noncentered(
+    gp_poisson_model, model_args=model_args, observed_data=observed)
   to_centered = make_to_centered(**noncentered_parameterization)
   to_noncentered = make_to_noncentered(
     gp_poisson_model, model_args=model_args, observed_data=observed)
 
   return ModelConfig(gp_poisson_model, model_args, observed, to_centered,
-                     to_noncentered, make_to_centered)
+                     to_noncentered, make_to_centered,
+                     make_to_partially_noncentered)
 
 
 def get_neals_funnel():
@@ -294,12 +341,15 @@ def get_neals_funnel():
 
   make_to_centered = build_make_to_centered(
       neals_funnel, model_args=model_args, observed_data=observed)
+  make_to_partially_noncentered = build_make_to_partially_noncentered(
+      neals_funnel, model_args=model_args, observed_data=observed)
   to_centered = make_to_centered(**noncentered_parameterization)
   to_noncentered = make_to_noncentered(
       neals_funnel, model_args=model_args, observed_data=observed)
 
   return ModelConfig(neals_funnel, model_args, observed, to_centered,
-                     to_noncentered, make_to_centered)
+                     to_noncentered, make_to_centered,
+                     make_to_partially_noncentered)
 
 
 @contextlib.contextmanager
@@ -326,14 +376,14 @@ def load_radon_data(state_code):
   # Non-NaN possibilities: MN, IN, MO, ND, PA
 
   with open_from_url(
-    'http://www.stat.columbia.edu/~gelman/arm/examples/radon/srrs2.dat') as f:
+      'http://www.stat.columbia.edu/~gelman/arm/examples/radon/srrs2.dat') as f:
     srrs2 = pd.read_csv(f)
   srrs2.columns = srrs2.columns.map(str.strip)
   srrs_mn = srrs2.assign(fips=srrs2.stfips * 1000 +
                          srrs2.cntyfips)[srrs2.state == state_code]
 
   with open_from_url(
-    'http://www.stat.columbia.edu/~gelman/arm/examples/radon/cty.dat') as f:
+      'http://www.stat.columbia.edu/~gelman/arm/examples/radon/cty.dat') as f:
     cty = pd.read_csv(f)
   cty_mn = cty[cty.st == state_code].copy()
   cty_mn['fips'] = 1000 * cty_mn.stfips + cty_mn.ctfips
@@ -411,12 +461,14 @@ def get_radon_model_stddvs(state_code='MN'):
 
   make_to_centered = build_make_to_centered(
       radon, model_args=model_args, observed_data=observed)
+  make_to_partially_noncentered = build_make_to_partially_noncentered(
+      radon, model_args=model_args, observed_data=observed)
   to_centered = make_to_centered(**noncentered_parameterization)
   to_noncentered = make_to_noncentered(
       radon, model_args=model_args, observed_data=observed)
 
   return ModelConfig(radon, model_args, observed, to_centered, to_noncentered,
-                     make_to_centered)
+                     make_to_centered, make_to_partially_noncentered)
 
 
 def get_radon(state_code='MN'):
@@ -460,18 +512,20 @@ def get_radon(state_code='MN'):
 
   make_to_centered = build_make_to_centered(
       radon, model_args=model_args, observed_data=observed)
+  make_to_partially_noncentered = build_make_to_partially_noncentered(
+      radon, model_args=model_args, observed_data=observed)
   to_centered = make_to_centered(**noncentered_parameterization)
   to_noncentered = make_to_noncentered(
       radon, model_args=model_args, observed_data=observed)
 
   return ModelConfig(radon, model_args, observed, to_centered, to_noncentered,
-                     make_to_centered)
+                     make_to_centered, make_to_partially_noncentered)
 
 
 def load_german_credit_data():
   """Load the German credit dataset."""
   with open_from_url(
-   'https://archive.ics.uci.edu/ml/machine-learning-databases/statlog/german/german.data'  # pylint: disable=line-too-long
+      'https://archive.ics.uci.edu/ml/machine-learning-databases/statlog/german/german.data'  # pylint: disable=line-too-long
   ) as f:
     data = pd.read_csv(f, delim_whitespace=True, header=None)
 
@@ -480,7 +534,8 @@ def load_german_credit_data():
     return np.array([d[i] for i in x])
 
   categoricals = []
-  numericals = [np.ones([len(data)])]
+  numericals = []
+  numericals.append(np.ones([len(data)]))
   for column in data.columns[:-1]:
     column = data[column]
     if column.dtype == 'O':
@@ -524,12 +579,15 @@ def get_german_credit_lognormalcentered():
 
   make_to_centered = build_make_to_centered(
       german_credit_model, model_args=model_args, observed_data=observed)
+  make_to_partially_noncentered = build_make_to_partially_noncentered(
+      german_credit_model, model_args=model_args, observed_data=observed)
   to_centered = make_to_centered(**noncentered_parameterization)
   to_noncentered = make_to_noncentered(
       german_credit_model, model_args=model_args, observed_data=observed)
 
   return ModelConfig(german_credit_model, model_args, observed, to_centered,
-                     to_noncentered, make_to_centered)
+                     to_noncentered, make_to_centered,
+                     make_to_partially_noncentered)
 
 
 def get_german_credit_gammascale():
@@ -562,12 +620,15 @@ def get_german_credit_gammascale():
 
   make_to_centered = build_make_to_centered(
       german_credit_model, model_args=model_args, observed_data=observed)
+  make_to_partially_noncentered = build_make_to_partially_noncentered(
+      german_credit_model, model_args=model_args, observed_data=observed)
   to_centered = make_to_centered(**noncentered_parameterization)
   to_noncentered = make_to_noncentered(
       german_credit_model, model_args=model_args, observed_data=observed)
 
   return ModelConfig(german_credit_model, model_args, observed, to_centered,
-                     to_noncentered, make_to_centered)
+                     to_noncentered, make_to_centered,
+                     make_to_partially_noncentered)
 
 
 def get_election():
@@ -603,12 +664,15 @@ def get_election():
 
   make_to_centered = build_make_to_centered(
       election, model_args=model_args, observed_data=observed)
+  make_to_partially_noncentered = build_make_to_partially_noncentered(
+      election, model_args=model_args, observed_data=observed)
   to_centered = make_to_centered(**noncentered_parameterization)
   to_noncentered = make_to_noncentered(
       election, model_args=model_args, observed_data=observed)
 
   return ModelConfig(election, model_args, observed, to_centered,
-                     to_noncentered, make_to_centered)
+                     to_noncentered, make_to_centered,
+                     make_to_partially_noncentered)
 
 
 def get_electric():
@@ -658,12 +722,15 @@ def get_electric():
 
   make_to_centered = build_make_to_centered(
       electric_model, model_args=model_args, observed_data=observed)
+  make_to_partially_noncentered = build_make_to_partially_noncentered(
+      electric_model, model_args=model_args, observed_data=observed)
   to_centered = make_to_centered(**noncentered_parameterization)
   to_noncentered = make_to_noncentered(
       electric_model, model_args=model_args, observed_data=observed)
 
   return ModelConfig(electric_model, model_args, observed, to_centered,
-                     to_noncentered, make_to_centered)
+                     to_noncentered, make_to_centered,
+                     make_to_partially_noncentered)
 
 
 def get_time_series():
@@ -730,9 +797,40 @@ def get_time_series():
 
   make_to_centered = build_make_to_centered(
       time_series, model_args=model_args, observed_data=observed)
+  make_to_partially_noncentered = build_make_to_partially_noncentered(
+      time_series, model_args=model_args, observed_data=observed)
   to_centered = make_to_centered(**noncentered_parameterization)
   to_noncentered = make_to_noncentered(
       time_series, model_args=model_args, observed_data=observed)
 
   return ModelConfig(time_series, model_args, observed, to_centered,
-                     to_noncentered, make_to_centered)
+                     to_noncentered, make_to_centered,
+                     make_to_partially_noncentered)
+
+
+def get_model_by_name(model, dataset=None):
+  if model == 'radon':
+    model_config = get_radon(state_code=dataset)
+  elif model == 'radon_stddvs':
+    model_config = get_radon_model_stddvs(state_code=dataset)
+  elif model == '8schools':
+    model_config = get_eight_schools()
+  elif model == 'german_credit_gammascale':
+    model_config = get_german_credit_gammascale()
+  elif model == 'german_credit_lognormalcentered':
+    model_config = get_german_credit_lognormalcentered()
+  elif model == 'gp_classification':
+    model_config = get_gp_classification()
+  elif model == 'gp_poisson':
+    model_config = get_gp_poisson()
+  elif model == 'election':
+    model_config = get_election()
+  elif model == 'electric':
+    model_config = get_electric()
+  elif model == 'time_series':
+    model_config = get_time_series()
+  elif model == 'neals_funnel':
+    model_config = get_neals_funnel()
+  else:
+    raise Exception('unknown model {}'.format(model))
+  return model_config
