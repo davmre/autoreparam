@@ -262,9 +262,7 @@ def ncp(rv_constructor, *rv_args, **rv_kwargs):
       X = gp_dist._get_index_points()
       x_loc = gp_dist.mean_fn(X)
       x_cov = gp_dist._compute_covariance(index_points=X)
-      shape = edward2.MultivariateNormalFullCovariance(x_loc,
-                                                       x_cov,
-                                                       name='yignoreme').shape
+      shape = tfd.MultivariateNormalFullCovariance(x_loc, x_cov).shape
 
     else:
       x_loc = rv_kwargs['loc']
