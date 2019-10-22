@@ -5,6 +5,21 @@ This repository contains code associated with the paper:
 M. I. Gorinova, D. Moore, and M. D. Hoffman. [*Automatic Reparameterisation of Probabilistic Programs*](https://arxiv.org/abs/1906.03028). 2019.
 
 
+## Installation
+
+```shell
+# Download code.
+git clone https://github.com/mgorinova/autoreparam.git
+
+# Install dependencies in a virtualenv.
+pip install --user --upgrade pipenv
+cd autoreparam
+pipenv install --dev
+
+# Activate virtualenv.
+pipenv shell
+```
+
 ## Usage
 
 The script `main.py` is the main entry point. For example, to evaluate the German credit model with four leapfrog steps per sample, you might run:
@@ -37,4 +52,4 @@ The number of leapfrog steps will be automatically tuned if (1) no `num_leapfrog
 
 When the number of leapfrog steps is tuned, the best number of leapfrog steps is recorded in a `.json` file, so that it can be reused accordingly.
 
-This code has been tested with TensorFlow 1.14 and TensorFlow Probability 0.7.0.
+This code has been tested with TensorFlow 1.15 and TensorFlow Probability 0.8.0.
