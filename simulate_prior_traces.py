@@ -1,9 +1,9 @@
 """Simulate from the prior, or parent-conditioned on partial traces.
 
 blaze run simulate_prior_traces -- \
-  --npzfile=/cns/od-d/home/davmre/german_partial_prior.npz \
+  --npzfile=german_partial_prior.npz \
   --model=german_credit_lognormalcentered --num_samples=10000 --num_chains=10 \
-  --source_npz=/cns/od-d/home/davmre/autoreparam_results_may17_200chains_savechains/german_credit_lognormalcentered_data/i2.npz \
+  --source_npz=german_credit_lognormalcentered_data/i2.npz \
   --source_vars=overall_log_scale
 """
 from absl import app
