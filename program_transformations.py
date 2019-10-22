@@ -34,6 +34,7 @@ from tensorflow_probability.python.experimental.edward2.interceptor import inter
 from tensorflow_probability.python import edward2
 from tensorflow_probability.python.internal import prefer_static
 
+from tensorflow.python.ops.parallel_for.pfor import RegisterPFor, RegisterPForWithArgs, wrap
 
 __all__ = [
     'make_log_joint_fn', 'make_variational_model', 'make_value_setter', 'ncp',
@@ -373,6 +374,12 @@ class LinearOperatorEigenScale(tf.linalg.LinearOperator):
                      adjoint_b=True)
 
 
+@RegisterPFor("SelfAdjointEigV2")
+def _convert_self_adjoint_eig(pfor_input):
+  t = pfor_input.stacked_input(0)
+  return [wrap(x, True) for x in eigh_with_safe_gradient(t)]
+
+
 @tf.custom_gradient
 def eigh_with_safe_gradient(x):
   """Like tf.linalg.eigh, but avoids NaN gradients from repeated eigenvalues."""
@@ -381,27 +388,26 @@ def eigh_with_safe_gradient(x):
   def grad(grad_e, grad_v):
     """Gradient for SelfAdjointEigV2."""
     with tf.control_dependencies([grad_e, grad_v]):
-      ediffs = array_ops.expand_dims(e, -2) - array_ops.expand_dims(e, -1)
+      ediffs = tf.expand_dims(e, -2) - tf.expand_dims(e, -1)
 
       # Avoid NaNs from reciprocals when eigenvalues are close.
-      safe_recip = array_ops.where(ediffs**2 < 1e-10,
-                            array_ops.zeros_like(ediffs),
-                            math_ops.reciprocal(ediffs))
-      f = array_ops.matrix_set_diag(
+      safe_recip = tf.where(ediffs**2 < 1e-10,
+                            tf.zeros_like(ediffs),
+                            tf.reciprocal(ediffs))
+      f = tf.matrix_set_diag(
           safe_recip,
-          array_ops.zeros_like(e))
-      grad_a = math_ops.matmul(
+          tf.zeros_like(e))
+      grad_a = tf.matmul(
           v,
-          math_ops.matmul(
-              array_ops.matrix_diag(grad_e) +
-              f * math_ops.matmul(v, grad_v, adjoint_a=True),
+          tf.matmul(
+              tf.matrix_diag(grad_e) +
+              f * tf.matmul(v, grad_v, adjoint_a=True),
               v,
               adjoint_b=True))
     # The forward op only depends on the lower triangular part of a, so here we
     # symmetrize and take the lower triangle
-    grad_a = array_ops.matrix_band_part(grad_a + _linalg.adjoint(grad_a), -1, 0)
-    grad_a = array_ops.matrix_set_diag(grad_a,
-                                       0.5 * array_ops.matrix_diag_part(grad_a))
+    grad_a = tf.linalg.band_part(grad_a + tf.linalg.adjoint(grad_a), -1, 0)
+    grad_a = tf.linalg.set_diag(grad_a, 0.5 * tf.matrix_diag_part(grad_a))
     return grad_a
 
   return (e, v), grad
