@@ -453,6 +453,8 @@ def make_learnable_parametrisation(init_val_loc=0.,
       alternate_param = 0.
       if tied_pparams:
         scale_param = learnable_parameters[loc_name]
+        if 'indep' in parameterisation_type:
+          raise Exception('This parameterisation type does not support tied pparams.')
       else:
         scale_param = 1.
         if (('eig' in parameterisation_type) or
@@ -524,9 +526,9 @@ def make_learnable_parametrisation(init_val_loc=0.,
         x_cov = rv_kwargs['covariance_matrix']
 
       a, b, c = get_or_init(name,
-                           loc_shape=tf.shape(x_loc),
-                           scale_shape=tf.shape(x_cov)[:-1],
-                           parameterisation_type=parameterisation_type)
+                            loc_shape=tf.shape(x_loc),
+                            scale_shape=tf.shape(x_cov)[:-1],
+                            parameterisation_type=parameterisation_type)
       ndims = tf.shape(x_cov)[-1]
       x_loc = tf.broadcast_to(x_loc, tf.shape(x_cov)[:-1])
       cov_dtype = tf.float64 if FLAGS.float64 else x_cov.dtype
