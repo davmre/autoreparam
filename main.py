@@ -9,6 +9,8 @@ import time
 import collections
 from collections import OrderedDict
 
+from absl import app
+from absl import flags
 import io
 
 import numpy as np
@@ -21,14 +23,14 @@ import graphs
 import models
 import util
 
+from tensorflow.python import debug as tf_debug
+
 import program_transformations as ed_transforms
 
 from tensorflow_probability.python import mcmc
 from tensorflow.python.ops.parallel_for import pfor
 
 import json
-
-flags = tf.compat.v1.app.flags
 
 flags.DEFINE_string('model', default='8schools', help='Model to be used.')
 
@@ -43,9 +45,9 @@ flags.DEFINE_string(
     help='Method to be used: CP, NCP, i (only if inference = HMC), cVIP, dVIP.')
 
 flags.DEFINE_string(
-    'learnable_parmeterisation_type',
-    default='exp',
-    help='Type of learnable parameterisation. Either `exp` or `scale`.')
+    'learnable_parameterisation_type',
+    default='eig',
+    help='Type of learnable parameterisation. One of "eig", "chol", "indep, "eigindep".')
 
 flags.DEFINE_boolean(
     'reparameterise_variational',
@@ -117,7 +119,7 @@ def create_target_graph(model_config, results_dir):
 
   cVIP_path = os.path.join(
     results_dir, 'cVIP_{}{}{}{}.json'.format(
-        FLAGS.learnable_parmeterisation_type,
+        FLAGS.learnable_parameterisation_type,
         '_tied' if FLAGS.tied_pparams else '',
         '_reparam_variational' if FLAGS.reparameterise_variational else '',
         '_discrete_prior' if FLAGS.discrete_prior else ''))
@@ -145,7 +147,7 @@ def create_target_graph(model_config, results_dir):
       (target, model, elbo, variational_parameters,
        learnable_parameters) = graphs.make_cvip_graph(
            model_config,
-           parameterisation_type=FLAGS.learnable_parmeterisation_type,
+           parameterisation_type=FLAGS.learnable_parameterisation_type,
            tied_pparams=FLAGS.tied_pparams)
     else:
       with tf.io.gfile.GFile(cVIP_path, 'r') as f:
@@ -156,7 +158,7 @@ def create_target_graph(model_config, results_dir):
          learnable_parameters) = graphs.make_dvip_graph(
              model_config,
              actual_reparam,
-             parameterisation_type=FLAGS.learnable_parmeterisation_type)
+             parameterisation_type=FLAGS.learnable_parameterisation_type)
 
   elif FLAGS.method == 'dVIP':
     if tf.io.gfile.exists(cVIP_path):
@@ -175,7 +177,7 @@ def create_target_graph(model_config, results_dir):
      learnable_parameters) = graphs.make_dvip_graph(
          model_config,
          discrete_parameterisation,
-         parameterisation_type=FLAGS.learnable_parmeterisation_type)
+         parameterisation_type=FLAGS.learnable_parameterisation_type)
     actual_reparam = discrete_parameterisation
 
   return (target,
@@ -250,7 +252,7 @@ def main(_):
   filename = '{}{}{}{}{}.json'.format(
       FLAGS.method,
       ('_' +
-       FLAGS.learnable_parmeterisation_type if 'VIP' in FLAGS.method else ''),
+       FLAGS.learnable_parameterisation_type if 'VIP' in FLAGS.method else ''),
       ('_tied'
        if FLAGS.tied_pparams else ''),
       ('_reparam_variational'
@@ -376,6 +378,7 @@ def run_hmc(model_config, results_dir, file_path):
                else learned_reparam))
 
   init = tf.compat.v1.global_variables_initializer()
+
   with tf.compat.v1.Session() as sess:
 
     init.run()
@@ -395,7 +398,7 @@ def run_hmc(model_config, results_dir, file_path):
   del ess_final
 
   ess_min, sem_min = util.get_min_ess(normalized_ess_final)
-  util.print('ESS: {} +/- {}'.format(ess_min, sem_min))
+  util.print('ESS per 1000 gradients: {} +/- {}'.format(ess_min, sem_min))
 
   acceptance_rate = (
       np.sum(is_accepted) * 100. / float(FLAGS.num_samples * FLAGS.num_chains))
@@ -575,13 +578,13 @@ def save_ess(file_path_base,
 
   # Work around issues saving np arrays directly to network
   # filesystems, by first saving to an in-memory IO buffer.
-  np_path = file_path_base + '_ess_{}.npz'.format(i)
+  np_path = file_path_base + '_ess.npz'
   with tf.io.gfile.GFile(np_path, 'wb') as out_f:
     io_buffer = io.BytesIO()
     np.savez(io_buffer, **dict_ess)
     out_f.write(io_buffer.getvalue())
 
-  txt_path = file_path_base + '_ess_{}.txt'.format(i)
+  txt_path = file_path_base + '_ess.txt'
   with tf.io.gfile.GFile(txt_path, 'w') as out_f:
     for k, v in dict_ess.items():
       out_f.write('{}: {}\n\n'.format(k, v))
@@ -593,7 +596,7 @@ def save_ess(file_path_base,
   if num_chains_to_save > 0:
     dict_res = dict([(param_names[i], samples[i][:, :num_chains_to_save])
                      for i in range(len(param_names))])
-    np_path = file_path_base + '{}.npz'.format(i)
+    np_path = file_path_base + '_traces.npz'
     with tf.io.gfile.GFile(np_path, 'wb') as out_f:
       io_buffer = io.BytesIO()
       np.savez(io_buffer, **dict_res)
@@ -601,4 +604,4 @@ def save_ess(file_path_base,
 
 
 if __name__ == '__main__':
-  tf.compat.v1.app.run()
+  app.run(main)

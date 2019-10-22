@@ -1,3 +1,4 @@
+from absl import flags
 import collections
 import numpy as np
 
@@ -5,10 +6,10 @@ import tensorflow as tf
 import tensorflow_probability as tfp
 from tensorflow_probability import edward2 as ed
 
-import util
+import util as util
 import program_transformations as ed_transforms
 
-FLAGS = tf.compat.v1.app.flags.FLAGS
+FLAGS = flags.FLAGS
 
 
 def make_cp_graph(model_config):
@@ -24,12 +25,9 @@ def make_cp_graph(model_config):
   with ed.tape() as model_tape:
     _ = model_config.model(*model_config.model_args)
 
-  param_shapes = collections.OrderedDict()
   target_cp_kwargs = {}
   for param in model_tape.keys():
-    if param not in model_config.observed_data.keys():
-      param_shapes[param] = model_tape[param].shape
-    else:
+    if param in model_config.observed_data.keys():
       target_cp_kwargs[param] = model_config.observed_data[param]
 
   def target_cp(*param_args):
@@ -70,12 +68,9 @@ def make_ncp_graph(model_config):
   with ed.tape() as model_tape:
     _ = model_ncp(*model_config.model_args)
 
-  param_shapes = collections.OrderedDict()
   target_ncp_kwargs = {}
   for param in model_tape.keys():
-    if param not in model_config.observed_data.keys():
-      param_shapes[param] = model_tape[param].shape
-    else:
+    if param in model_config.observed_data.keys():
       target_ncp_kwargs[param] = model_config.observed_data[param]
 
   def target_ncp(*param_args):
@@ -124,12 +119,9 @@ def make_cvip_graph(model_config,
   with ed.tape() as model_tape:
     _ = model_vip(*model_config.model_args)
 
-  param_shapes = collections.OrderedDict()
   target_vip_kwargs = {}
   for param in model_tape.keys():
-    if param not in model_config.observed_data.keys():
-      param_shapes[param] = model_tape[param].shape
-    else:
+    if param in model_config.observed_data.keys():
       target_vip_kwargs[param] = model_config.observed_data[param]
 
   def target_vip(*param_args):  # latent_log_joint_fn
@@ -181,12 +173,9 @@ def make_dvip_graph(model_config, reparam, parameterisation_type='exp'):
   with ed.tape() as model_tape:
     _ = model_vip(*model_config.model_args)
 
-  param_shapes = collections.OrderedDict()
   target_vip_kwargs = {}
   for param in model_tape.keys():
-    if param not in model_config.observed_data.keys():
-      param_shapes[param] = model_tape[param].shape
-    else:
+    if param in model_config.observed_data.keys():
       target_vip_kwargs[param] = model_config.observed_data[param]
 
   def target_vip(*param_args):  # latent_log_joint_fn

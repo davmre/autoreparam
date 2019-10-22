@@ -1,9 +1,10 @@
+from absl import app
+from absl import flags
 import numpy as np
 import os
 import json
 
 import tensorflow as tf
-flags = tf.compat.v1.app.flags
 
 flags.DEFINE_boolean("elbos", default=False, help="")
 flags.DEFINE_boolean("ess", default=False, help="")
@@ -184,4 +185,4 @@ def main(_):
 
 
 if __name__ == "__main__":
-  tf.compat.v1.app.run()
+  app.run(main)

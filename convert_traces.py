@@ -5,6 +5,8 @@ blaze run convert_traces -- \
   --model=german_credit_lognormalcentered \
   --vip_json=german_credit_lognormalcentered_data/cVIP_exp_tied.json
 """
+from absl import app
+from absl import flags
 import io
 import json
 import os
@@ -13,9 +15,7 @@ import numpy as np
 import tensorflow as tf
 from tensorflow_probability import edward2 as ed
 
-import models
-
-flags = tf.compat.v1.app.flags
+import models as models
 
 flags.DEFINE_string('tracefile', default='', help='')
 flags.DEFINE_string('vip_json', default='', help='')
@@ -67,4 +67,4 @@ def main(_):
     out_f.write(io_buffer.getvalue())
 
 if __name__ == '__main__':
-  tf.compat.v1.app.run()
+  app.run()

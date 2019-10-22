@@ -6,7 +6,8 @@ blaze run simulate_prior_traces -- \
   --source_npz=/cns/od-d/home/davmre/autoreparam_results_may17_200chains_savechains/german_credit_lognormalcentered_data/i2.npz \
   --source_vars=overall_log_scale
 """
-
+from absl import app
+from absl import flags
 import io
 
 import numpy as np
@@ -14,8 +15,6 @@ import tensorflow as tf
 from tensorflow_probability import edward2 as ed
 
 import models
-
-flags = tf.compat.v1.app.flags
 
 flags.DEFINE_integer('num_samples', default=100, help='')
 flags.DEFINE_integer('num_chains', default=10, help='')
@@ -71,4 +70,4 @@ def main(_):
     out_f.write(io_buffer.getvalue())
 
 if __name__ == '__main__':
-  tf.compat.v1.app.run()
+  app.run(main)
